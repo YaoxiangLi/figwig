@@ -465,8 +465,25 @@ def _zoom_records(size, tids, starts, ends, values, progress, open_ints,
 	the number of items once every item is summarized.
 	"""
 
+	# The open record is held in locals, which the compiler keeps in
+	# registers, and stored back to `open_ints` and `open_floats` on return.
+	# Storing it for every item instead made levels summarized on different
+	# threads at once slow each other down several times over, wherever their
+	# small state arrays shared a cache line.
+	is_open = open_ints[0]
+	place = open_ints[1]
+	open_tid = open_ints[2]
+	open_start = open_ints[3]
+	open_end = open_ints[4]
+	open_bases = open_ints[5]
+	low = open_floats[0]
+	high = open_floats[1]
+	total = open_floats[2]
+	squares = open_floats[3]
+
 	n = 0
 	i = progress[0]
+	full = False
 	while i < values.shape[0]:
 		tid = tids[i]
 		start = starts[i] if progress[1] < 0 else progress[1]
@@ -479,57 +496,73 @@ def _zoom_records(size, tids, starts, ends, values, progress, open_ints,
 			if start + reach > 0xFFFFFFFF:
 				reach = 0xFFFFFFFF - start
 
-			if (open_ints[0] == 1 and open_ints[1] < 1023 and open_ints[2] == tid
-					and start < open_ints[3] + reach):
-				length = min(open_ints[3] + reach, end) - start
-				open_ints[4] = start + length
-				open_ints[5] += length
-				if open_floats[0] > as_double:
-					open_floats[0] = as_double
-				if open_floats[1] < as_double:
-					open_floats[1] = as_double
+			if (is_open == 1 and place < 1023 and open_tid == tid
+					and start < open_start + reach):
+				length = min(open_start + reach, end) - start
+				open_end = start + length
+				open_bases += length
+				if low > as_double:
+					low = as_double
+				if high < as_double:
+					high = as_double
 
-				open_floats[2] += numpy.float64(numpy.float32(length) * value)
-				open_floats[3] += numpy.float64(length) * (as_double * as_double)
+				total += numpy.float64(numpy.float32(length) * value)
+				squares += numpy.float64(length) * (as_double * as_double)
 				start += length
 				continue
 
-			if open_ints[0] == 1:
+			if is_open == 1:
 				if n == out_ints.shape[0]:
-					progress[0] = i
-					progress[1] = start
-					return n
+					full = True
+					break
 
-				out_ints[n, 0] = open_ints[2]
-				out_ints[n, 1] = open_ints[3]
-				out_ints[n, 2] = open_ints[4]
-				out_ints[n, 3] = open_ints[5]
-				out_floats[n, 0] = open_floats[0]
-				out_floats[n, 1] = open_floats[1]
-				out_floats[n, 2] = open_floats[2]
-				out_floats[n, 3] = open_floats[3]
+				out_ints[n, 0] = open_tid
+				out_ints[n, 1] = open_start
+				out_ints[n, 2] = open_end
+				out_ints[n, 3] = open_bases
+				out_floats[n, 0] = low
+				out_floats[n, 1] = high
+				out_floats[n, 2] = total
+				out_floats[n, 3] = squares
 				n += 1
 
-			if open_ints[1] == 1023:
-				open_ints[1] = 0
+			if place == 1023:
+				place = 0
 
 			length = min(reach, end - start)
-			open_ints[0] = 1
-			open_ints[1] += 1
-			open_ints[2] = tid
-			open_ints[3] = start
-			open_ints[4] = start + length
-			open_ints[5] = length
-			open_floats[0] = as_double
-			open_floats[1] = as_double
-			open_floats[2] = numpy.float64(numpy.float32(length) * value)
-			open_floats[3] = numpy.float64(length) * (as_double * as_double)
+			is_open = 1
+			place += 1
+			open_tid = tid
+			open_start = start
+			open_end = start + length
+			open_bases = length
+			low = as_double
+			high = as_double
+			total = numpy.float64(numpy.float32(length) * value)
+			squares = numpy.float64(length) * (as_double * as_double)
 			start += length
+
+		if full:
+			progress[0] = i
+			progress[1] = start
+			break
 
 		progress[1] = -1
 		i += 1
 
-	progress[0] = i
+	if not full:
+		progress[0] = i
+
+	open_ints[0] = is_open
+	open_ints[1] = place
+	open_ints[2] = open_tid
+	open_ints[3] = open_start
+	open_ints[4] = open_end
+	open_ints[5] = open_bases
+	open_floats[0] = low
+	open_floats[1] = high
+	open_floats[2] = total
+	open_floats[3] = squares
 	return n
 
 
