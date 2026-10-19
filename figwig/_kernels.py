@@ -465,11 +465,11 @@ def _zoom_records(size, tids, starts, ends, values, progress, open_ints,
 	the number of items once every item is summarized.
 	"""
 
-	# The open record is held in locals, which the compiler keeps in
-	# registers, and stored back to `open_ints` and `open_floats` on return.
-	# Storing it for every item instead made levels summarized on different
-	# threads at once slow each other down several times over, wherever their
-	# small state arrays shared a cache line.
+	# The open record is held in thread-private locals and stored back to
+	# `open_ints` and `open_floats` on return. Storing it to the arrays for
+	# every item instead makes levels summarized on different threads at once
+	# slow each other down wherever their small state arrays share a cache
+	# line.
 	is_open = open_ints[0]
 	place = open_ints[1]
 	open_tid = open_ints[2]
