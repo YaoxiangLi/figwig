@@ -6,6 +6,15 @@ Release History
 ===============
 
 
+Unreleased
+==========
+
+Writing
+-------
+
+	- ``_zoom_records``, the kernel that summarizes items into one zoom level's records, holds the open record in locals and stores it back when it returns, instead of writing it to the level's state arrays for every item. Zoom levels are summarized on different threads at once, and their small state arrays can share a cache line, which makes the kernel many times slower in the processes where the arrays happen to be allocated next to each other. The files written are unchanged. Thanks @YaoxiangLi!
+
+
 Version 0.1.0
 =============
 
